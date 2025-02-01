@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Timer de Entrenamiento Interactivo</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    h1 {
+      text-align: center;
+    }
+    .container {
+      display: flex;
+      flex-direction: row;
+      gap: 20px;
+      margin-top: 20px;
+    }
+    #scheduleContainer {
+      flex: 1;
+      max-width: 300px;
+      border: 1px solid #ccc;
+      padding: 10px;
+      height: 400px;
+      overflow-y: auto;
+    }
+    #scheduleContainer ul {
+      padding-left: 15px;
+    }
+    #scheduleContainer li {
+      margin: 5px 0;
+    }
+    /* Estilos para el ejercicio en curso */
+    .current {
+      background-color: #d4fcd4;
+      border-left: 4px solid #2ecc71;
+      padding-left: 5px;
+      font-weight: bold;
+    }
+    #mainDisplay {
+      flex: 2;
+      text-align: center;
+    }
+    #timerDisplay {
+      font-size: 2em;
+      margin-top: 20px;
+    }
+    button, select {
+      font-size: 1em;
+      padding: 10px 15px;
+      margin: 5px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Timer de Entrenamiento Interactivo</h1>
+  <div style="text-align: center;">
+    <label for="daySelect">Selecciona el día:</label>
+    <select id="daySelect">
+      <option value="viernes">Viernes</option>
+      <option value="sabado">Sábado</option>
+      <option value="domingo">Domingo</option>
+    </select>
+    <br>
+    <button id="startButton">Empezar</button>
+    <button id="pauseButton" disabled>Pausar</button>
+    <button id="stopButton" disabled>Detener</button>
+  </div>
+
+  <div class="container">
+    <!-- Lista completa del WOD -->
+    <div id="scheduleContainer">
+      <h3>Plan del WOD</h3>
+      <ul id="scheduleList">
+        <!-- Se renderizará la estructura completa: bloque > ejercicio > sets -->
+      </ul>
+    </div>
+    <!-- Área principal del timer y progreso global -->
+    <div id="mainDisplay">
+      <div id="overallProgress">Progreso: </div>
+      <div id="timerDisplay">Esperando iniciar...</div>
+    </div>
+  </div>
+
+  <script>
+    /* Estructura de datos:
+       Cada día se organiza en bloques, cada bloque tiene ejercicios y cada ejercicio tiene:
+       - sets: número de repeticiones.
+       - duration: tiempo (en segundos) de cada set (fase de ejercicio).
+       - rest: tiempo (en segundos) de descanso tras cada set.
+    */
+    const schedules = {
+      viernes: [
+        {
+          block: "Skills",
+          exercises: [
+            { name: "Dominadas kipping/chest-to-bar", sets: 5, duration: 30, rest: 60 },
+            { name: "Double-Unders", sets: 3, duration: 60, rest: 30 }
+          ]
+        },
+        {
+          block: "Fuerza",
+          exercises: [
+            { name: "Press Militar", sets: 3, duration: 45, rest: 60 },
+            { name: "Face Pull", sets: 3, duration: 45, rest: 60 },
+            { name: "Dead Hang", sets: 3, duration: 30, rest: 30 }
+          ]
+        }
+      ],
+      sabado: [
+        {
+          block: "Skills (Circuito)",
+          exercises: [
+            { name: "Dominadas kipping/chest-to-bar", sets: 3, duration: 30, rest: 30 },
+            { name: "Double-Unders", sets: 3, duration: 60, rest: 30 },
+            { name: "Assault Bike", sets: 3, duration: 30, rest: 30 }
+          ]
+        },
+        {
+          block: "Fuerza",
+          exercises: [
+            { name: "Press Militar", sets: 3, duration: 45, rest: 60 }
+          ]
+        },
+        {
+          block: "Fuerza (Opcional)",
+          exercises: [
+            { name: "Elevaciones laterales", sets: 2, duration: 45, rest: 60 }
+          ]
+        }
+      ],
+      domingo: [
+        {
+          block: "Skills",
+          exercises: [
+            { name: "Dominadas kipping/chest-to-bar", sets: 3, duration: 30, rest: 60 },
+            { name: "Double-Unders", sets: 1, duration: 600, rest: 0 }
+          ]
+        },
+        {
+          block: "Estabilidad",
+          exercises: [
+            { name: "Dead Hang", sets: 2, duration: 30, rest: 30 },
+            { name: "Band Pull-Aparts", sets: 2, duration: 30, rest: 30 }
+          ]
+        }
+      ]
+    };
+
+    // Estado global de la sesión
+    const state = {
+      schedule: null, // se asigna el array de bloques del día seleccionado
+      currentBlockIndex: 0,
+      currentExerciseIndex: 0,
+      currentSet: 1,
+      phase: "exercise", // "exercise" o "rest"
+      remainingTime: 0,
+      timer: null,
+      isPaused: false
+    };
+
+    // Elementos del DOM
+    const daySelect = document.getElementById("daySelect");
+    const startButton = document.getElementById("startButton");
+    const pauseButton = document.getElementById("pauseButton");
+    const stopButton = document.getElementById("stopButton");
+    const timerDisplay = document.getElementById("timerDisplay");
+    const overallProgress = document.getElementById("overallProgress");
+    const scheduleListElem = document.getElementById("scheduleList");
+
+    // Wake Lock API para evitar que la pantalla se apague
+    let wakeLock = null;
+    async function requestWakeLock() {
+      if ('wakeLock' in navigator) {
+        try {
+          wakeLock = await navigator.wakeLock.request('screen');
+          console.log("Wake Lock activado");
+        } catch (err) {
+          console.error("Error con Wake Lock:", err);
+        }
+      }
+    }
+    async function releaseWakeLock() {
+      if (wakeLock !== null) {
+        await wakeLock.release();
+        wakeLock = null;
+      }
+    }
+
+    // Funciones para reproducir beeps ("pi", "pi", "pii")
+    function beep() {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = ctx.createOscillator();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(1000, ctx.currentTime);
+      oscillator.connect(ctx.destination);
+      oscillator.start();
+      setTimeout(() => {
+        oscillator.stop();
+        ctx.close();
+      }, 150);
+    }
+    function beepSequence() {
+      beep();
+      setTimeout(beep, 300);
+      setTimeout(beep, 600);
+    }
+
+    // Renderiza la lista completa del WOD organizada en tres niveles: Bloque > Ejercicio > Sets.
+    // Se muestran únicamente el bloque y ejercicios actuales y posteriores.
+    function renderScheduleList() {
+      scheduleListElem.innerHTML = "";
+      if (!state.schedule) return;
+      // Iteramos por los bloques desde el actual
+      for (let b = state.currentBlockIndex; b < state.schedule.length; b++) {
+        const block = state.schedule[b];
+        const blockLi = document.createElement("li");
+        blockLi.style.fontWeight = "bold";
+        blockLi.textContent = block.block;
+        const exUl = document.createElement("ul");
+        // Para el bloque actual, mostramos solo ejercicios a partir del actual; para los siguientes, todos.
+        const startEx = (b === state.currentBlockIndex) ? state.currentExerciseIndex : 0;
+        for (let e = startEx; e < block.exercises.length; e++) {
+          const exercise = block.exercises[e];
+          const exLi = document.createElement("li");
+          if (b === state.currentBlockIndex && e === state.currentExerciseIndex) {
+            // Ejercicio actual resaltado en mayor tamaño
+            exLi.classList.add("current");
+            exLi.style.fontSize = "1.3em";
+            exLi.textContent = `${exercise.name} - Set ${state.currentSet} / ${exercise.sets} [${state.phase === "exercise" ? "Ejercicio" : "Descanso"}]`;
+          } else {
+            exLi.textContent = `${exercise.name} (${exercise.sets} set${exercise.sets > 1 ? 's' : ''})`;
+          }
+          exUl.appendChild(exLi);
+        }
+        blockLi.appendChild(exUl);
+        scheduleListElem.appendChild(blockLi);
+      }
+      // Actualiza el progreso global
+      const currentBlock = state.schedule[state.currentBlockIndex];
+      overallProgress.textContent = `Bloque ${state.currentBlockIndex + 1} de ${state.schedule.length} - Ejercicio ${state.currentExerciseIndex + 1} de ${currentBlock.exercises.length}`;
+    }
+
+    // Actualiza el display del timer y progreso
+    function updateDisplay() {
+      const currentExercise = state.schedule[state.currentBlockIndex].exercises[state.currentExerciseIndex];
+      if (state.phase === "exercise") {
+        timerDisplay.textContent = `Ejercicio: ${currentExercise.name} - Set ${state.currentSet}/${currentExercise.sets} - Tiempo: ${state.remainingTime} seg`;
+      } else {
+        timerDisplay.textContent = `Descanso - Tiempo: ${state.remainingTime} seg`;
+      }
+      renderScheduleList();
+    }
+
+    // Inicia el timer para la fase actual (ejercicio o descanso)
+    function startTimerForCurrentPhase() {
+      const currentExercise = state.schedule[state.currentBlockIndex].exercises[state.currentExerciseIndex];
+      state.remainingTime = (state.phase === "exercise") ? currentExercise.duration : currentExercise.rest;
+      updateDisplay();
+      beepSequence();
+      state.timer = setInterval(tick, 1000);
+    }
+
+    // Función que se ejecuta cada segundo
+    function tick() {
+      if (!state.isPaused) {
+        state.remainingTime--;
+        updateDisplay();
+        if (state.remainingTime <= 0) {
+          clearInterval(state.timer);
+          nextPhase();
+        }
+      }
+    }
+
+    // Transición entre fase (ejercicio o descanso) o entre sets/ejercicios
+    function nextPhase() {
+      const currentExercise = state.schedule[state.currentBlockIndex].exercises[state.currentExerciseIndex];
+      if (state.phase === "exercise") {
+        // Si hay descanso configurado, pasa a la fase de descanso
+        if (currentExercise.rest > 0) {
+          state.phase = "rest";
+          startTimerForCurrentPhase();
+        } else {
+          finishSetOrExercise();
+        }
+      } else {
+        finishSetOrExercise();
+      }
+    }
+
+    // Maneja la finalización de un set o ejercicio y avanza en la estructura
+    function finishSetOrExercise() {
+      const currentBlock = state.schedule[state.currentBlockIndex];
+      const currentExercise = currentBlock.exercises[state.currentExerciseIndex];
+      if (state.currentSet < currentExercise.sets) {
+        state.currentSet++;
+        state.phase = "exercise";
+        startTimerForCurrentPhase();
+      } else {
+        // Avanza al siguiente ejercicio
+        if (state.currentExerciseIndex < currentBlock.exercises.length - 1) {
+          state.currentExerciseIndex++;
+          state.currentSet = 1;
+          state.phase = "exercise";
+          startTimerForCurrentPhase();
+        } else {
+          // Avanza al siguiente bloque
+          if (state.currentBlockIndex < state.schedule.length - 1) {
+            state.currentBlockIndex++;
+            state.currentExerciseIndex = 0;
+            state.currentSet = 1;
+            state.phase = "exercise";
+            startTimerForCurrentPhase();
+          } else {
+            timerDisplay.textContent = "¡Entrenamiento completado!";
+            pauseButton.disabled = true;
+            stopButton.disabled = true;
+            releaseWakeLock();
+            renderScheduleList();
+          }
+        }
+      }
+    }
+
+    // Manejo de botones
+    startButton.addEventListener("click", () => {
+      // Carga la estructura completa del día seleccionado
+      const day = daySelect.value;
+      state.schedule = schedules[day];
+      state.currentBlockIndex = 0;
+      state.currentExerciseIndex = 0;
+      state.currentSet = 1;
+      state.phase = "exercise";
+      state.isPaused = false;
+      startButton.disabled = true;
+      pauseButton.disabled = false;
+      stopButton.disabled = false;
+      requestWakeLock();
+      renderScheduleList();
+      startTimerForCurrentPhase();
+    });
+
+    pauseButton.addEventListener("click", () => {
+      state.isPaused = !state.isPaused;
+      pauseButton.textContent = state.isPaused ? "Continuar" : "Pausar";
+    });
+
+    stopButton.addEventListener("click", () => {
+      clearInterval(state.timer);
+      timerDisplay.textContent = "Entrenamiento detenido.";
+      startButton.disabled = false;
+      pauseButton.disabled = true;
+      stopButton.disabled = true;
+      pauseButton.textContent = "Pausar";
+      releaseWakeLock();
+    });
+  </script>
+</body>
+</html>
