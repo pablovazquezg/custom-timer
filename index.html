@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My GitHub Pages Site</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        header {
+            text-align: center;
+            padding: 20px 0;
+            border-bottom: 2px solid #eee;
+        }
+        main {
+            padding: 20px 0;
+        }
+        .content {
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0052a3;
+        }
+        #message {
+            margin-top: 20px;
+            padding: 10px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Welcome to My GitHub Pages Site</h1>
+    </header>
+    
+    <main>
+        <div class="content">
+            <h2>About This Page</h2>
+            <p>This is a sample page that demonstrates HTML and JavaScript functionality. Feel free to modify it for your needs!</p>
+        </div>
+
+        <div class="content">
+            <h2>Interactive Demo</h2>
+            <p>Click the button below to see JavaScript in action:</p>
+            <button onclick="showMessage()">Click Me!</button>
+            <div id="message"></div>
+        </div>
+    </main>
+
+    <script>
+        function showMessage() {
+            const messages = [
+                "Hello! JavaScript is working! 👋",
+                "Great job setting up GitHub Pages! 🎉",
+                "Feel free to customize this page! 🚀",
+                "Thanks for visiting! ⭐"
+            ];
+            const messageElement = document.getElementById('message');
+            messageElement.style.display = 'block';
+            messageElement.style.backgroundColor = '#f0f0f0';
+            messageElement.textContent = messages[Math.floor(Math.random() * messages.length)];
+        }
+    </script>
+</body>
+</html>
